@@ -3,9 +3,9 @@ package server
 import (
 	"errors"
 
-	"github.com/emersion/go-imap"
-	"github.com/emersion/go-imap/commands"
-	"github.com/emersion/go-imap/responses"
+	"github.com/artpar/go-imap"
+	"github.com/artpar/go-imap/commands"
+	"github.com/artpar/go-imap/responses"
 )
 
 // imap errors in Selected state.

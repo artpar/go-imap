@@ -16,9 +16,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/emersion/go-imap"
-	"github.com/emersion/go-imap/commands"
-	"github.com/emersion/go-imap/responses"
+	"github.com/artpar/go-imap"
+	"github.com/artpar/go-imap/commands"
+	"github.com/artpar/go-imap/responses"
 )
 
 // errClosed is used when a connection is closed while waiting for a command
@@ -63,8 +63,8 @@ func (u *MessageUpdate) update() {}
 
 // Client is an IMAP client.
 type Client struct {
-	conn  *imap.Conn
-	isTLS bool
+	conn       *imap.Conn
+	isTLS      bool
 	serverName string
 
 	loggedOut chan struct{}

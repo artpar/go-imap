@@ -3,7 +3,7 @@ package client
 import (
 	"testing"
 
-	"github.com/emersion/go-imap"
+	"github.com/artpar/go-imap"
 )
 
 func TestClient_Capability(t *testing.T) {

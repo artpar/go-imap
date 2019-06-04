@@ -7,8 +7,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/emersion/go-imap"
-	"github.com/emersion/go-imap/backend"
+	"github.com/artpar/go-imap"
+	"github.com/artpar/go-imap/backend"
 )
 
 // Conn is a connection to a client.

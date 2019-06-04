@@ -1,4 +1,4 @@
-module github.com/emersion/go-imap
+module github.com/artpar/go-imap
 
 require (
 	github.com/emersion/go-message v0.10.2-0.20190514201857-604a73722993

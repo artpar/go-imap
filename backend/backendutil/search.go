@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/emersion/go-imap"
+	"github.com/artpar/go-imap"
 	"github.com/emersion/go-message/textproto"
 )
 

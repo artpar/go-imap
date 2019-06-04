@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/emersion/go-imap/server"
+	"github.com/artpar/go-imap/server"
 	"github.com/emersion/go-sasl"
 )
 
