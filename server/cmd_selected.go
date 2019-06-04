@@ -209,7 +209,12 @@ func (cmd *Store) handle(uid bool, conn Conn) error {
 
 	flagsList, ok := cmd.Value.([]interface{})
 	if !ok {
-		return errors.New("Flags must be a list")
+		flag, ok := cmd.Value.(string)
+		if !ok {
+			return errors.New("Flags must be a list")
+		} else {
+			flagsList = []interface{}{flag}
+		}
 	}
 	flags, err := imap.ParseStringList(flagsList)
 	if err != nil {
