@@ -66,11 +66,11 @@ var messageTests = []struct {
 			itemsOrder:    []FetchItem{FetchEnvelope, FetchBody, FetchFlags, FetchRFC822Size, FetchUid},
 		},
 		fields: []interface{}{
-			"ENVELOPE", envelopeTests[0].fields,
-			"BODY", bodyStructureTests[0].fields,
-			"FLAGS", []interface{}{Atom(SeenFlag), Atom(AnsweredFlag)},
-			"RFC822.SIZE", "4242",
-			"UID", "2424",
+			RawString("ENVELOPE"), envelopeTests[0].fields,
+			RawString("BODY"), bodyStructureTests[0].fields,
+			RawString("FLAGS"), []interface{}{RawString(SeenFlag), RawString(AnsweredFlag)},
+			RawString("RFC822.SIZE"), RawString("4242"),
+			RawString("UID"), RawString("2424"),
 		},
 	},
 }
@@ -400,7 +400,7 @@ var paramsListTest = []struct {
 		params: map[string]string{},
 	},
 	{
-		fields: []interface{}{"a", Quoted("b")},
+		fields: []interface{}{"a", "b"},
 		params: map[string]string{"a": "b"},
 	},
 }
@@ -442,7 +442,7 @@ var bodyStructureTests = []struct {
 	bodyStructure *BodyStructure
 }{
 	{
-		fields: []interface{}{"image", "jpeg", []interface{}{}, "<foo4%25foo1@bar.net>", "A picture of cat", "base64", "4242"},
+		fields: []interface{}{"image", "jpeg", []interface{}{}, "<foo4%25foo1@bar.net>", "A picture of cat", "base64", RawString("4242")},
 		bodyStructure: &BodyStructure{
 			MIMEType:    "image",
 			MIMESubType: "jpeg",
@@ -454,7 +454,7 @@ var bodyStructureTests = []struct {
 		},
 	},
 	{
-		fields: []interface{}{"text", "plain", []interface{}{"charset", Quoted("utf-8")}, nil, nil, "us-ascii", "42", "2"},
+		fields: []interface{}{"text", "plain", []interface{}{"charset", "utf-8"}, nil, nil, "us-ascii", RawString("42"), RawString("2")},
 		bodyStructure: &BodyStructure{
 			MIMEType:    "text",
 			MIMESubType: "plain",
@@ -466,10 +466,10 @@ var bodyStructureTests = []struct {
 	},
 	{
 		fields: []interface{}{
-			"message", "rfc822", []interface{}{}, nil, nil, "us-ascii", "42",
+			"message", "rfc822", []interface{}{}, nil, nil, "us-ascii", RawString("42"),
 			(&Envelope{}).Format(),
 			(&BodyStructure{}).Format(),
-			"67",
+			RawString("67"),
 		},
 		bodyStructure: &BodyStructure{
 			MIMEType:    "message",
@@ -493,9 +493,9 @@ var bodyStructureTests = []struct {
 	},
 	{
 		fields: []interface{}{
-			"application", "pdf", []interface{}{}, nil, nil, "base64", "4242",
+			"application", "pdf", []interface{}{}, nil, nil, "base64", RawString("4242"),
 			"e0323a9039add2978bf5b49550572c7c",
-			[]interface{}{"attachment", []interface{}{"filename", Quoted("document.pdf")}},
+			[]interface{}{"attachment", []interface{}{"filename", "document.pdf"}},
 			[]interface{}{"en-US"}, []interface{}{},
 		},
 		bodyStructure: &BodyStructure{
@@ -514,8 +514,8 @@ var bodyStructureTests = []struct {
 	},
 	{
 		fields: []interface{}{
-			[]interface{}{"text", "plain", []interface{}{}, nil, nil, "us-ascii", "87", "22"},
-			[]interface{}{"text", "html", []interface{}{}, nil, nil, "us-ascii", "106", "36"},
+			[]interface{}{"text", "plain", []interface{}{}, nil, nil, "us-ascii", RawString("87"), RawString("22")},
+			[]interface{}{"text", "html", []interface{}{}, nil, nil, "us-ascii", RawString("106"), RawString("36")},
 			"alternative",
 		},
 		bodyStructure: &BodyStructure{
@@ -544,8 +544,8 @@ var bodyStructureTests = []struct {
 	},
 	{
 		fields: []interface{}{
-			[]interface{}{"text", "plain", []interface{}{}, nil, nil, "us-ascii", "87", "22"},
-			"alternative", []interface{}{"hello", Quoted("world")},
+			[]interface{}{"text", "plain", []interface{}{}, nil, nil, "us-ascii", RawString("87"), RawString("22")},
+			"alternative", []interface{}{"hello", "world"},
 			[]interface{}{"inline", []interface{}{}},
 			[]interface{}{"en-US"}, []interface{}{},
 		},
@@ -597,6 +597,144 @@ func TestBodyStructure_Format(t *testing.T) {
 
 		if got != expected {
 			t.Errorf("Invalid body structure fields for #%v: has \n%v\n but expected \n%v", i, got, expected)
+		}
+	}
+}
+
+func TestBodyStructureFilename(t *testing.T) {
+	tests := []struct {
+		bs       BodyStructure
+		filename string
+	}{
+		{
+			bs: BodyStructure{
+				DispositionParams: map[string]string{"filename": "cat.png"},
+			},
+			filename: "cat.png",
+		},
+		{
+			bs: BodyStructure{
+				Params: map[string]string{"name": "cat.png"},
+			},
+			filename: "cat.png",
+		},
+		{
+			bs:       BodyStructure{},
+			filename: "",
+		},
+		{
+			bs: BodyStructure{
+				DispositionParams: map[string]string{"filename": "=?UTF-8?Q?Opis_przedmiotu_zam=c3=b3wienia_-_za=c5=82=c4=85cznik_nr_1?= =?UTF-8?Q?=2epdf?="},
+			},
+			filename: "Opis przedmiotu zamówienia - załącznik nr 1.pdf",
+		},
+	}
+
+	for i, test := range tests {
+		got, err := test.bs.Filename()
+		if err != nil {
+			t.Errorf("Invalid body structure filename for #%v: error: %v", i, err)
+			continue
+		}
+
+		if got != test.filename {
+			t.Errorf("Invalid body structure filename for #%v: got '%v', want '%v'", i, got, test.filename)
+		}
+	}
+}
+
+func TestBodyStructureWalk(t *testing.T) {
+	textPlain := &BodyStructure{
+		MIMEType:    "text",
+		MIMESubType: "plain",
+	}
+
+	textHTML := &BodyStructure{
+		MIMEType:    "text",
+		MIMESubType: "plain",
+	}
+
+	multipartAlternative := &BodyStructure{
+		MIMEType:    "multipart",
+		MIMESubType: "alternative",
+		Parts:       []*BodyStructure{textPlain, textHTML},
+	}
+
+	imagePNG := &BodyStructure{
+		MIMEType:    "image",
+		MIMESubType: "png",
+	}
+
+	multipartMixed := &BodyStructure{
+		MIMEType:    "multipart",
+		MIMESubType: "mixed",
+		Parts:       []*BodyStructure{multipartAlternative, imagePNG},
+	}
+
+	type testNode struct {
+		path []int
+		part *BodyStructure
+	}
+
+	tests := []struct {
+		bs           *BodyStructure
+		nodes        []testNode
+		walkChildren bool
+	}{
+		{
+			bs: textPlain,
+			nodes: []testNode{
+				{path: []int{1}, part: textPlain},
+			},
+		},
+		{
+			bs: multipartAlternative,
+			nodes: []testNode{
+				{path: nil, part: multipartAlternative},
+				{path: []int{1}, part: textPlain},
+				{path: []int{2}, part: textHTML},
+			},
+			walkChildren: true,
+		},
+		{
+			bs: multipartMixed,
+			nodes: []testNode{
+				{path: nil, part: multipartMixed},
+				{path: []int{1}, part: multipartAlternative},
+				{path: []int{1, 1}, part: textPlain},
+				{path: []int{1, 2}, part: textHTML},
+				{path: []int{2}, part: imagePNG},
+			},
+			walkChildren: true,
+		},
+		{
+			bs: multipartMixed,
+			nodes: []testNode{
+				{path: nil, part: multipartMixed},
+			},
+			walkChildren: false,
+		},
+	}
+
+	for i, test := range tests {
+		j := 0
+		test.bs.Walk(func(path []int, part *BodyStructure) bool {
+			if j >= len(test.nodes) {
+				t.Errorf("Test #%v: invalid node count: got > %v, want %v", i, j, len(test.nodes))
+				return false
+			}
+			n := &test.nodes[j]
+			if !reflect.DeepEqual(path, n.path) {
+				t.Errorf("Test #%v: node #%v: invalid path: got %v, want %v", i, j, path, n.path)
+			}
+			if part != n.part {
+				t.Errorf("Test #%v: node #%v: invalid part: got %v, want %v", i, j, part, n.part)
+			}
+			j++
+			return test.walkChildren
+		})
+		if j != len(test.nodes) {
+			t.Errorf("Test #%v: invalid node count: got %v, want %v", i, j, len(test.nodes))
 		}
 	}
 }

@@ -90,20 +90,26 @@ func (cmd *Expunge) Handle(conn Conn) error {
 
 	// If the backend doesn't support expunge updates, let's do it ourselves
 	if conn.Server().Updates == nil {
-		done := make(chan error)
-		defer close(done)
+		done := make(chan error, 1)
 
 		ch := make(chan uint32)
 		res := &responses.Expunge{SeqNums: ch}
 
 		go (func() {
 			done <- conn.WriteResp(res)
+			// Don't need to drain 'ch', sender will stop sending when error written to 'done.
 		})()
 
 		// Iterate sequence numbers from the last one to the first one, as deleting
 		// messages changes their respective numbers
 		for i := len(seqnums) - 1; i >= 0; i-- {
-			ch <- seqnums[i]
+			// Send sequence numbers to channel, and check if conn.WriteResp() finished early.
+			select {
+			case ch <- seqnums[i]: // Send next seq. number
+			case err := <-done: // Check for errors
+				close(ch)
+				return err
+			}
 		}
 		close(ch)
 
@@ -158,6 +164,9 @@ func (cmd *Fetch) handle(uid bool, conn Conn) error {
 	done := make(chan error, 1)
 	go (func() {
 		done <- conn.WriteResp(res)
+		// Make sure to drain the message channel.
+		for _ = range ch {
+		}
 	})()
 
 	err := ctx.Mailbox.ListMessages(uid, cmd.SeqSet, cmd.Items, ch)
@@ -207,18 +216,22 @@ func (cmd *Store) handle(uid bool, conn Conn) error {
 		return err
 	}
 
-	flagsList, ok := cmd.Value.([]interface{})
-	if !ok {
-		flag, ok := cmd.Value.(string)
-		if !ok {
-			return errors.New("Flags must be a list")
+	var flags []string
+
+	if flagsList, ok := cmd.Value.([]interface{}); ok {
+		// Parse list of flags
+		if strs, err := imap.ParseStringList(flagsList); err == nil {
+			flags = strs
 		} else {
-			flagsList = []interface{}{flag}
+			return err
 		}
-	}
-	flags, err := imap.ParseStringList(flagsList)
-	if err != nil {
-		return err
+	} else {
+		// Parse single flag
+		if str, err := imap.ParseString(cmd.Value); err == nil {
+			flags = []string{str}
+		} else {
+			return err
+		}
 	}
 	for i, flag := range flags {
 		flags[i] = imap.CanonicalFlag(flag)

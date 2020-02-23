@@ -1,7 +1,9 @@
 module github.com/artpar/go-imap
 
+go 1.13
+
 require (
-	github.com/emersion/go-message v0.10.2-0.20190514201857-604a73722993
-	github.com/emersion/go-sasl v0.0.0-20161116183048-7e096a0a6197
+	github.com/emersion/go-message v0.11.1
+	github.com/emersion/go-sasl v0.0.0-20191210011802-430746ea8b9b
 	golang.org/x/text v0.3.2
 )

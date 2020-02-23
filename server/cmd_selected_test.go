@@ -27,6 +27,19 @@ func testServerSelected(t *testing.T, readOnly bool) (s *server.Server, c net.Co
 	return
 }
 
+func TestNoop_Selected(t *testing.T) {
+	s, c, scanner := testServerSelected(t, false)
+	defer s.Close()
+	defer c.Close()
+
+	io.WriteString(c, "a001 NOOP\r\n")
+
+	scanner.Scan()
+	if !strings.HasPrefix(scanner.Text(), "a001 OK ") {
+		t.Fatal("Bad status response:", scanner.Text())
+	}
+}
+
 func TestCheck(t *testing.T) {
 	s, c, scanner := testServerSelected(t, false)
 	defer s.Close()
@@ -234,6 +247,18 @@ func TestFetch(t *testing.T) {
 	}
 }
 
+func TestFetch_NotSelected(t *testing.T) {
+	s, c, scanner := testServerAuthenticated(t)
+	defer s.Close()
+	defer c.Close()
+
+	io.WriteString(c, "a001 FETCH 1 (UID FLAGS)\r\n")
+	scanner.Scan()
+	if !strings.HasPrefix(scanner.Text(), "a001 NO ") {
+		t.Fatal("Invalid status response:", scanner.Text())
+	}
+}
+
 func TestFetch_Uid(t *testing.T) {
 	s, c, scanner := testServerSelected(t, true)
 	defer s.Close()
@@ -356,16 +381,41 @@ func TestStore_InvalidFlags(t *testing.T) {
 	defer s.Close()
 	defer c.Close()
 
-	io.WriteString(c, "a001 STORE 1 +FLAGS somestring\r\n")
-	scanner.Scan()
-	if !strings.HasPrefix(scanner.Text(), "a001 NO ") {
-		t.Fatal("Invalid status response:", scanner.Text())
-	}
-
 	io.WriteString(c, "a001 STORE 1 +FLAGS ((nested)(lists))\r\n")
 	scanner.Scan()
 	if !strings.HasPrefix(scanner.Text(), "a001 NO ") {
 		t.Fatal("Invalid status response:", scanner.Text())
+	}
+}
+
+func TestStore_SingleFlagNonList(t *testing.T) {
+	s, c, scanner := testServerSelected(t, false)
+	defer c.Close()
+	defer s.Close()
+
+	io.WriteString(c, "a001 STORE 1 FLAGS somestring\r\n")
+
+	gotOK := false
+	gotFetch := false
+	for scanner.Scan() {
+		res := scanner.Text()
+
+		if res == "* 1 FETCH (FLAGS (somestring))" {
+			gotFetch = true
+		} else if strings.HasPrefix(res, "a001 OK ") {
+			gotOK = true
+			break
+		} else {
+			t.Fatal("Unexpected response:", res)
+		}
+	}
+
+	if !gotFetch {
+		t.Fatal("Missing FETCH response.")
+	}
+
+	if !gotOK {
+		t.Fatal("Missing status response.")
 	}
 }
 
@@ -378,6 +428,52 @@ func TestStore_NonList(t *testing.T) {
 
 	scanner.Scan()
 	if scanner.Text() != "* 1 FETCH (FLAGS (somestring someanotherstring))" {
+		t.Fatal("Invalid FETCH response:", scanner.Text())
+	}
+
+	scanner.Scan()
+	if !strings.HasPrefix(scanner.Text(), "a001 OK ") {
+		t.Fatal("Invalid status response:", scanner.Text())
+	}
+}
+
+func TestStore_RecentFlag(t *testing.T) {
+	s, c, scanner := testServerSelected(t, false)
+	defer c.Close()
+	defer s.Close()
+
+	// Add Recent flag
+	io.WriteString(c, "a001 STORE 1 FLAGS \\Recent\r\n")
+
+	scanner.Scan()
+	if scanner.Text() != "* 1 FETCH (FLAGS (\\Recent))" {
+		t.Fatal("Invalid FETCH response:", scanner.Text())
+	}
+
+	scanner.Scan()
+	if !strings.HasPrefix(scanner.Text(), "a001 OK ") {
+		t.Fatal("Invalid status response:", scanner.Text())
+	}
+
+	// Set flags to: something
+	// Should still get Recent flag back
+	io.WriteString(c, "a001 STORE 1 FLAGS something\r\n")
+
+	scanner.Scan()
+	if scanner.Text() != "* 1 FETCH (FLAGS (\\Recent something))" {
+		t.Fatal("Invalid FETCH response:", scanner.Text())
+	}
+
+	scanner.Scan()
+	if !strings.HasPrefix(scanner.Text(), "a001 OK ") {
+		t.Fatal("Invalid status response:", scanner.Text())
+	}
+
+	// Try adding Recent flag again
+	io.WriteString(c, "a001 STORE 1 FLAGS \\Recent anotherflag\r\n")
+
+	scanner.Scan()
+	if scanner.Text() != "* 1 FETCH (FLAGS (\\Recent anotherflag))" {
 		t.Fatal("Invalid FETCH response:", scanner.Text())
 	}
 
@@ -424,7 +520,7 @@ func TestCopy(t *testing.T) {
 
 	io.WriteString(c, "a001 STATUS CopyDest (MESSAGES)\r\n")
 	scanner.Scan()
-	if !strings.HasPrefix(scanner.Text(), "* STATUS CopyDest (MESSAGES 1)") {
+	if !strings.HasPrefix(scanner.Text(), "* STATUS \"CopyDest\" (MESSAGES 1)") {
 		t.Fatal("Invalid status response:", scanner.Text())
 	}
 	scanner.Scan()

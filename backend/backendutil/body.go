@@ -16,7 +16,7 @@ var errNoSuchPart = errors.New("backendutil: no such message body part")
 
 func multipartReader(header textproto.Header, body io.Reader) *textproto.MultipartReader {
 	contentType := header.Get("Content-Type")
-	if !strings.HasPrefix(contentType, "multipart/") {
+	if !strings.HasPrefix(strings.ToLower(contentType), "multipart/") {
 		return nil
 	}
 
@@ -36,6 +36,11 @@ func FetchBodySection(header textproto.Header, body io.Reader, section *imap.Bod
 
 		mr := multipartReader(header, body)
 		if mr == nil {
+			// First part of non-multipart message refers to the message itself.
+			// See RFC 3501, Page 55.
+			if len(section.Path) == 1 && section.Path[0] == 1 {
+				break
+			}
 			return nil, errNoSuchPart
 		}
 

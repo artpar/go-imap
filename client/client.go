@@ -68,6 +68,7 @@ type Client struct {
 	serverName string
 
 	loggedOut chan struct{}
+	continues chan<- bool
 	upgrading bool
 
 	handlers       []responses.Handler
@@ -231,6 +232,11 @@ func (c *Client) execute(cmdr imap.Commander, h responses.Handler) (*imap.Status
 				// Wait for upgrade to finish.
 				c.conn.Wait()
 			}
+			// Cancel any pending literal write
+			select {
+			case c.continues <- false:
+			default:
+			}
 			return errUnregisterHandler
 		}
 
@@ -251,6 +257,18 @@ func (c *Client) execute(cmdr imap.Commander, h responses.Handler) (*imap.Status
 	if err := cmd.WriteTo(c.conn.Writer); err != nil {
 		// Error while sending the command
 		close(unregister)
+
+		if err, ok := err.(imap.LiteralLengthErr); ok {
+			// Expected > Actual
+			//  The server is waiting for us to write
+			//  more bytes, we don't have them. Run.
+			// Expected < Actual
+			//  We are about to send a potentially truncated message, we don't
+			//  want this (ths terminating CRLF is not sent at this point).
+			c.conn.Close()
+			return nil, err
+		}
+
 		return nil, err
 	}
 	// Flush writer if we are upgrading
@@ -322,11 +340,11 @@ func (c *Client) Execute(cmdr imap.Commander, h responses.Handler) (*imap.Status
 	return c.execute(cmdr, h)
 }
 
-func (c *Client) handleContinuationReqs(continues chan<- bool) {
+func (c *Client) handleContinuationReqs() {
 	c.registerHandler(responses.HandlerFunc(func(resp imap.Resp) error {
 		if _, ok := resp.(*imap.ContinuationReq); ok {
 			go func() {
-				continues <- true
+				c.continues <- true
 			}()
 			return nil
 		}
@@ -572,14 +590,24 @@ func New(conn net.Conn) (*Client, error) {
 	c := &Client{
 		conn:      imap.NewConn(conn, r, w),
 		loggedOut: make(chan struct{}),
+		continues: continues,
 		state:     imap.ConnectingState,
 		ErrorLog:  log.New(os.Stderr, "imap/client: ", log.LstdFlags),
 	}
 
-	c.handleContinuationReqs(continues)
+	c.handleContinuationReqs()
 	c.handleUnilateral()
-	err := c.handleGreetAndStartReading()
-	return c, err
+	if err := c.handleGreetAndStartReading(); err != nil {
+		return c, err
+	}
+
+	plusOk, _ := c.Support("LITERAL+")
+	minusOk, _ := c.Support("LITERAL-")
+	// We don't use non-sync literal if it is bigger than 4096 bytes, so
+	// LITERAL- is fine too.
+	c.conn.AllowAsyncLiterals = plusOk || minusOk
+
+	return c, nil
 }
 
 // Dial connects to an IMAP server using an unencrypted connection.

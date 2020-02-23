@@ -7,7 +7,6 @@ import (
 
 	"github.com/artpar/go-imap"
 	"github.com/artpar/go-imap/commands"
-	"github.com/artpar/go-imap/responses"
 	"github.com/emersion/go-sasl"
 )
 
@@ -57,15 +56,20 @@ func (cmd *StartTLS) Upgrade(conn Conn) error {
 
 	conn.setTLSConn(tlsConn)
 
-	res := &responses.Capability{Caps: conn.Capabilities()}
-	return conn.WriteResp(res)
+	return nil
 }
 
 func afterAuthStatus(conn Conn) error {
+	caps := conn.Capabilities()
+	capAtoms := make([]interface{}, 0, len(caps))
+	for _, cap := range caps {
+		capAtoms = append(capAtoms, imap.RawString(cap))
+	}
+
 	return ErrStatusResp(&imap.StatusResp{
 		Type:      imap.StatusRespOk,
 		Code:      imap.CodeCapability,
-		Arguments: imap.FormatStringList(conn.Capabilities()),
+		Arguments: capAtoms,
 	})
 }
 

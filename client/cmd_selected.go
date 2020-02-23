@@ -63,6 +63,10 @@ func (c *Client) Terminate() error {
 // the currently selected mailbox. If ch is not nil, sends sequence IDs of each
 // deleted message to this channel.
 func (c *Client) Expunge(ch chan uint32) error {
+	if ch != nil {
+		defer close(ch)
+	}
+
 	if c.State() != imap.SelectedState {
 		return ErrNoMailboxSelected
 	}
@@ -72,7 +76,6 @@ func (c *Client) Expunge(ch chan uint32) error {
 	var h responses.Handler
 	if ch != nil {
 		h = &responses.Expunge{SeqNums: ch}
-		defer close(ch)
 	}
 
 	status, err := c.execute(cmd, h)
@@ -122,7 +125,8 @@ func (c *Client) search(uid bool, criteria *imap.SearchCriteria) (ids []uint32, 
 // match the searching criteria. When multiple keys are specified, the result is
 // the intersection (AND function) of all the messages that match those keys.
 // Criteria must be UTF-8 encoded. See RFC 3501 section 6.4.4 for a list of
-// searching criteria.
+// searching criteria. When no criteria has been set, all messages in the mailbox
+// will be searched using ALL criteria.
 func (c *Client) Search(criteria *imap.SearchCriteria) (seqNums []uint32, err error) {
 	return c.search(false, criteria)
 }
@@ -170,6 +174,10 @@ func (c *Client) UidFetch(seqset *imap.SeqSet, items []imap.FetchItem, ch chan *
 }
 
 func (c *Client) store(uid bool, seqset *imap.SeqSet, item imap.StoreItem, value interface{}, ch chan *imap.Message) error {
+	if ch != nil {
+		defer close(ch)
+	}
+
 	if c.State() != imap.SelectedState {
 		return ErrNoMailboxSelected
 	}
@@ -178,7 +186,7 @@ func (c *Client) store(uid bool, seqset *imap.SeqSet, item imap.StoreItem, value
 	if fields, ok := value.([]interface{}); ok {
 		for i, field := range fields {
 			if s, ok := field.(string); ok {
-				fields[i] = imap.Atom(s)
+				fields[i] = imap.RawString(s)
 			}
 		}
 	}
@@ -204,7 +212,6 @@ func (c *Client) store(uid bool, seqset *imap.SeqSet, item imap.StoreItem, value
 	var h responses.Handler
 	if ch != nil {
 		h = &responses.Fetch{Messages: ch}
-		defer close(ch)
 	}
 
 	status, err := c.execute(cmd, h)

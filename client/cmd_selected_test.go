@@ -125,7 +125,7 @@ func TestClient_Search(t *testing.T) {
 		done <- err
 	}()
 
-	wantCmd := `SEARCH CHARSET UTF-8 SINCE "1-Feb-1994" FROM Smith DELETED NOT (TO Pauline)`
+	wantCmd := `SEARCH CHARSET UTF-8 SINCE "1-Feb-1994" FROM "Smith" DELETED NOT (TO "Pauline")`
 	tag, cmd := s.ScanCmd()
 	if cmd != wantCmd {
 		t.Fatalf("client sent command %v, want %v", cmd, wantCmd)
@@ -389,15 +389,15 @@ func TestClient_Store(t *testing.T) {
 	done := make(chan error, 1)
 	updates := make(chan *imap.Message, 1)
 	go func() {
-		done <- c.Store(seqset, imap.AddFlags, []interface{}{imap.SeenFlag}, updates)
+		done <- c.Store(seqset, imap.AddFlags, []interface{}{imap.SeenFlag, "foobar"}, updates)
 	}()
 
 	tag, cmd := s.ScanCmd()
-	if cmd != "STORE 2 +FLAGS (\\Seen)" {
-		t.Fatalf("client sent command %v, want %v", cmd, "STORE 2 +FLAGS (\\Seen)")
+	if cmd != "STORE 2 +FLAGS (\\Seen foobar)" {
+		t.Fatalf("client sent command %v, want %v", cmd, "STORE 2 +FLAGS (\\Seen foobar)")
 	}
 
-	s.WriteString("* 2 FETCH (FLAGS (\\Seen))\r\n")
+	s.WriteString("* 2 FETCH (FLAGS (\\Seen foobar))\r\n")
 	s.WriteString(tag + " OK STORE completed\r\n")
 
 	if err := <-done; err != nil {
@@ -405,7 +405,7 @@ func TestClient_Store(t *testing.T) {
 	}
 
 	msg := <-updates
-	if len(msg.Flags) != 1 || msg.Flags[0] != "\\Seen" {
+	if len(msg.Flags) != 2 || msg.Flags[0] != "\\Seen" || msg.Flags[1] != "foobar" {
 		t.Errorf("Bad message flags: %v", msg.Flags)
 	}
 }
@@ -420,12 +420,12 @@ func TestClient_Store_Silent(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- c.Store(seqset, imap.AddFlags, []interface{}{imap.SeenFlag}, nil)
+		done <- c.Store(seqset, imap.AddFlags, []interface{}{imap.SeenFlag, "foobar"}, nil)
 	}()
 
 	tag, cmd := s.ScanCmd()
-	if cmd != "STORE 2:3 +FLAGS.SILENT (\\Seen)" {
-		t.Fatalf("client sent command %v, want %v", cmd, "STORE 2:3 +FLAGS.SILENT (\\Seen)")
+	if cmd != "STORE 2:3 +FLAGS.SILENT (\\Seen foobar)" {
+		t.Fatalf("client sent command %v, want %v", cmd, "STORE 2:3 +FLAGS.SILENT (\\Seen foobar)")
 	}
 
 	s.WriteString(tag + " OK STORE completed\r\n")
@@ -445,12 +445,12 @@ func TestClient_Store_Uid(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- c.UidStore(seqset, imap.AddFlags, []interface{}{imap.DeletedFlag}, nil)
+		done <- c.UidStore(seqset, imap.AddFlags, []interface{}{imap.DeletedFlag, "foobar"}, nil)
 	}()
 
 	tag, cmd := s.ScanCmd()
-	if cmd != "UID STORE 27:901 +FLAGS.SILENT (\\Deleted)" {
-		t.Fatalf("client sent command %v, want %v", cmd, "UID STORE 27:901 +FLAGS.SILENT (\\Deleted)")
+	if cmd != "UID STORE 27:901 +FLAGS.SILENT (\\Deleted foobar)" {
+		t.Fatalf("client sent command %v, want %v", cmd, "UID STORE 27:901 +FLAGS.SILENT (\\Deleted foobar)")
 	}
 
 	s.WriteString(tag + " OK STORE completed\r\n")
@@ -474,8 +474,8 @@ func TestClient_Copy(t *testing.T) {
 	}()
 
 	tag, cmd := s.ScanCmd()
-	if cmd != "COPY 2:4 Sent" {
-		t.Fatalf("client sent command %v, want %v", cmd, "COPY 2:4 Sent")
+	if cmd != "COPY 2:4 \"Sent\"" {
+		t.Fatalf("client sent command %v, want %v", cmd, "COPY 2:4 \"Sent\"")
 	}
 
 	s.WriteString(tag + " OK COPY completed\r\n")
@@ -499,8 +499,8 @@ func TestClient_Copy_Uid(t *testing.T) {
 	}()
 
 	tag, cmd := s.ScanCmd()
-	if cmd != "UID COPY 78:102 Drafts" {
-		t.Fatalf("client sent command %v, want %v", cmd, "UID COPY 78:102 Drafts")
+	if cmd != "UID COPY 78:102 \"Drafts\"" {
+		t.Fatalf("client sent command %v, want %v", cmd, "UID COPY 78:102 \"Drafts\"")
 	}
 
 	s.WriteString(tag + " OK UID COPY completed\r\n")

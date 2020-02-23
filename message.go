@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// Message flags, defined in RFC 3501 section 2.3.2.
+// System message flags, defined in RFC 3501 section 2.3.2.
 const (
 	SeenFlag     = "\\Seen"
 	AnsweredFlag = "\\Answered"
@@ -20,6 +20,11 @@ const (
 	DraftFlag    = "\\Draft"
 	RecentFlag   = "\\Recent"
 )
+
+// TryCreateFlag is a special flag in MailboxStatus.PermanentFlags indicating
+// that it is possible to create new keywords by attempting to store those
+// flags in the mailbox.
+const TryCreateFlag = "\\*"
 
 var flags = []string{
 	SeenFlag,
@@ -88,7 +93,7 @@ func ParseParamList(fields []interface{}) (map[string]string, error) {
 func FormatParamList(params map[string]string) []interface{} {
 	var fields []interface{}
 	for key, value := range params {
-		fields = append(fields, key, Quoted(value))
+		fields = append(fields, key, value)
 	}
 	return fields
 }
@@ -189,10 +194,13 @@ func (m *Message) Parse(fields []interface{}) error {
 	var k FetchItem
 	for i, f := range fields {
 		if i%2 == 0 { // It's a key
-			if kstr, ok := f.(string); !ok {
+			switch f := f.(type) {
+			case string:
+				k = FetchItem(strings.ToUpper(f))
+			case RawString:
+				k = FetchItem(strings.ToUpper(string(f)))
+			default:
 				return fmt.Errorf("cannot parse message: key is not a string, but a %T", f)
-			} else {
-				k = FetchItem(strings.ToUpper(kstr))
 			}
 		} else { // It's a value
 			m.Items[k] = nil
@@ -255,7 +263,7 @@ func (m *Message) Parse(fields []interface{}) error {
 
 func (m *Message) formatItem(k FetchItem) []interface{} {
 	v := m.Items[k]
-	var kk interface{} = string(k)
+	var kk interface{} = RawString(k)
 
 	switch k {
 	case FetchBody, FetchBodyStructure:
@@ -267,7 +275,7 @@ func (m *Message) formatItem(k FetchItem) []interface{} {
 	case FetchFlags:
 		flags := make([]interface{}, len(m.Flags))
 		for i, flag := range m.Flags {
-			flags[i] = Atom(flag)
+			flags[i] = RawString(flag)
 		}
 		v = flags
 	case FetchInternalDate:
@@ -632,6 +640,11 @@ type Address struct {
 	HostName string
 }
 
+// Address returns the mailbox address (e.g. "foo@example.org").
+func (addr *Address) Address() string {
+	return addr.MailboxName + "@" + addr.HostName
+}
+
 // Parse an address from fields.
 func (addr *Address) Parse(fields []interface{}) error {
 	if len(fields) < 4 {
@@ -787,16 +800,16 @@ func (e *Envelope) Format() (fields []interface{}) {
 type BodyStructure struct {
 	// Basic fields
 
-	// The MIME type.
+	// The MIME type (e.g. "text", "image")
 	MIMEType string
-	// The MIME subtype.
+	// The MIME subtype (e.g. "plain", "png")
 	MIMESubType string
-	// The MIME parameters.
+	// The MIME parameters. Values are encoded.
 	Params map[string]string
 
 	// The Content-Id header.
 	Id string
-	// The Content-Description header.
+	// The Content-Description header. This is the raw encoded value.
 	Description string
 	// The Content-Encoding header.
 	Encoding string
@@ -821,7 +834,7 @@ type BodyStructure struct {
 
 	// The Content-Disposition header field value.
 	Disposition string
-	// The Content-Disposition header field parameters.
+	// The Content-Disposition header field parameters. Values are encoded.
 	DispositionParams map[string]string
 	// The Content-Language header field, if multipart.
 	Language []string
@@ -922,7 +935,7 @@ func (bs *BodyStructure) Parse(fields []interface{}) error {
 		end := 7
 
 		// Type-specific fields
-		if bs.MIMEType == "message" && bs.MIMESubType == "rfc822" {
+		if strings.EqualFold(bs.MIMEType, "message") && strings.EqualFold(bs.MIMESubType, "rfc822") {
 			if len(fields)-end < 3 {
 				return errors.New("Missing type-specific fields for message/rfc822")
 			}
@@ -939,7 +952,7 @@ func (bs *BodyStructure) Parse(fields []interface{}) error {
 
 			end += 3
 		}
-		if bs.MIMEType == "text" {
+		if strings.EqualFold(bs.MIMEType, "text") {
 			if len(fields)-end < 1 {
 				return errors.New("Missing type-specific fields for text/*")
 			}
@@ -989,7 +1002,7 @@ func (bs *BodyStructure) Parse(fields []interface{}) error {
 }
 
 func (bs *BodyStructure) Format() (fields []interface{}) {
-	if bs.MIMEType == "multipart" {
+	if strings.EqualFold(bs.MIMEType, "multipart") {
 		for _, part := range bs.Parts {
 			fields = append(fields, part.Format())
 		}
@@ -1036,7 +1049,7 @@ func (bs *BodyStructure) Format() (fields []interface{}) {
 		fields[6] = bs.Size
 
 		// Type-specific fields
-		if bs.MIMEType == "message" && bs.MIMESubType == "rfc822" {
+		if strings.EqualFold(bs.MIMEType, "message") && strings.EqualFold(bs.MIMESubType, "rfc822") {
 			var env interface{}
 			if bs.Envelope != nil {
 				env = bs.Envelope.Format()
@@ -1049,7 +1062,7 @@ func (bs *BodyStructure) Format() (fields []interface{}) {
 
 			fields = append(fields, env, bsbs, bs.Lines)
 		}
-		if bs.MIMEType == "text" {
+		if strings.EqualFold(bs.MIMEType, "text") {
 			fields = append(fields, bs.Lines)
 		}
 
@@ -1078,4 +1091,52 @@ func (bs *BodyStructure) Format() (fields []interface{}) {
 	}
 
 	return
+}
+
+// Filename parses the body structure's filename, if it's an attachment. An
+// empty string is returned if the filename isn't specified. An error is
+// returned if and only if a charset error occurs, in which case the undecoded
+// filename is returned too.
+func (bs *BodyStructure) Filename() (string, error) {
+	raw, ok := bs.DispositionParams["filename"]
+	if !ok {
+		// Using "name" in Content-Type is discouraged
+		raw = bs.Params["name"]
+	}
+	return decodeHeader(raw)
+}
+
+// BodyStructureWalkFunc is the type of the function called for each body
+// structure visited by BodyStructure.Walk. The path argument contains the IMAP
+// part path (see BodyPartName).
+//
+// The function should return true to visit all of the part's children or false
+// to skip them.
+type BodyStructureWalkFunc func(path []int, part *BodyStructure) (walkChildren bool)
+
+// Walk walks the body structure tree, calling f for each part in the tree,
+// including bs itself. The parts are visited in DFS pre-order.
+func (bs *BodyStructure) Walk(f BodyStructureWalkFunc) {
+	// Non-multipart messages only have part 1
+	if len(bs.Parts) == 0 {
+		f([]int{1}, bs)
+		return
+	}
+
+	bs.walk(f, nil)
+}
+
+func (bs *BodyStructure) walk(f BodyStructureWalkFunc, path []int) {
+	if !f(path, bs) {
+		return
+	}
+
+	for i, part := range bs.Parts {
+		num := i + 1
+
+		partPath := append([]int(nil), path...)
+		partPath = append(partPath, num)
+
+		part.walk(f, partPath)
+	}
 }
